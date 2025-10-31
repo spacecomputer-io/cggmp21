@@ -2,6 +2,7 @@ use generic_ec::{Curve, Point};
 use rand::{seq::SliceRandom, Rng, RngCore};
 use rand_dev::DevRng;
 use sha2::Sha256;
+use std::time::Instant;
 
 use crypto_ctrng::RandomBlockSource;
 
@@ -34,9 +35,11 @@ where
 
     // 2) Fetch one 32-byte block per simulated party
     let mut base_seeds: Vec<[u8; 32]> = Vec::new();
-    for _ in 0..n {
+    for i in 0..n {
+        let ipfs_call_start = Instant::now();
         let seed = ctrng.next_block().expect("failed to fetch IPFS block");
-        println!("Seed: {:?}", hex::encode(seed));
+        let ipfs_duration = ipfs_call_start.elapsed();
+        println!("[IPFS call {}] Duration: {:?}, Seed (hex): {}", i, ipfs_duration, hex::encode(seed));
         base_seeds.push(seed);
     }
     let incomplete_shares = run_keygen(t, n, hd_enabled, &base_seeds, &mut rng);
@@ -54,7 +57,8 @@ where
     let eid: [u8; 32] = rng.gen();
     let eid = ExecutionId::new(&eid);
 
-    round_based::sim::run(n, |i, party| {
+    let protocol_start = Instant::now();
+    let result = round_based::sim::run(n, |i, party| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let stage_seed = crypto_ctrng::derive_seed(eid.as_bytes(), i, 1, &base_seeds[usize::from(i)]);
         let mut party_rng = crypto_ctrng::rng_from_seed_block(stage_seed);
@@ -70,7 +74,10 @@ where
     })
     .unwrap()
     .expect_ok()
-    .into_vec()
+    .into_vec();
+    let protocol_duration = protocol_start.elapsed();
+    println!("[Keygen Protocol] Duration: {:?}", protocol_duration);
+    result
 }
 
 fn run_aux_gen<E>(shares: Vec<IncompleteKeyShare<E>>, base_seeds: &[[u8; 32]], rng: &mut DevRng) -> Vec<KeyShare<E>>
@@ -83,6 +90,7 @@ where
     let eid: [u8; 32] = rng.gen();
     let eid = ExecutionId::new(&eid);
 
+    let protocol_start = Instant::now();
     let aux_infos = round_based::sim::run(n, |i, party| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let stage_seed = crypto_ctrng::derive_seed(eid.as_bytes(), i, 2, &base_seeds[usize::from(i)]);
@@ -97,6 +105,8 @@ where
     .unwrap()
     .expect_ok()
     .into_vec();
+    let protocol_duration = protocol_start.elapsed();
+    println!("[Aux Info Gen Protocol] Duration: {:?}", protocol_duration);
 
     shares
         .into_iter()
@@ -139,6 +149,7 @@ where
     println!("Signers: {participants:?}");
     let participants_shares = participants.iter().map(|i| &shares[usize::from(*i)]);
 
+    let protocol_start = Instant::now();
     let sig = round_based::sim::run_with_setup(participants_shares, |i, party, share| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let pid: u16 = participants[usize::from(i)];
@@ -166,6 +177,8 @@ where
     .unwrap()
     .expect_ok()
     .expect_eq();
+    let protocol_duration = protocol_start.elapsed();
+    println!("[Signing Protocol] Duration: {:?}", protocol_duration);
 
     #[cfg(feature = "hd-wallet")]
     let public_key = if let Some(path) = &derivation_path {
