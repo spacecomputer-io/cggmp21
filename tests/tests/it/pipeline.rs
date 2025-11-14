@@ -2,6 +2,7 @@ use generic_ec::{Curve, Point};
 use rand::{seq::SliceRandom, Rng, RngCore};
 use rand_dev::DevRng;
 use sha2::Sha256;
+use std::time::Instant;
 
 use crypto_ctrng::RandomBlockSource;
 
@@ -26,22 +27,36 @@ where
     Point<E>: generic_ec::coords::HasAffineX<E>,
 {
     let mut rng = DevRng::new();
+    let test_start = Instant::now();
 
     // 1) Initialize your IPFS randomness source
     let gateway = "https://ipfs.io";
-    let beacon_key = "k2k4r8pigrw8i34z63om8f015tt5igdq0c46xupq8spp1bogt35k5vhe";
+    let beacon_key = "k2k4r8lvomw737sajfnpav0dpeernugnryng50uheyk1k39lursmn09f";
     let mut ctrng = crypto_ctrng::IpfsCtrngClient::new(gateway, beacon_key);
 
     // 2) Fetch one 32-byte block per simulated party
+    let checkpoint = Instant::now();
     let mut base_seeds: Vec<[u8; 32]> = Vec::new();
-    for _ in 0..n {
+    for i in 0..n {
         let seed = ctrng.next_block().expect("failed to fetch IPFS block");
-        println!("Seed: {:?}", hex::encode(seed));
+        println!("Base seed {}: {}", i, hex::encode(seed));
         base_seeds.push(seed);
     }
+    println!("IPFS randomness fetch completed in {:?}", checkpoint.elapsed());
+
+    let checkpoint = Instant::now();
     let incomplete_shares = run_keygen(t, n, hd_enabled, &base_seeds, &mut rng);
+    println!("Key generation completed in {:?}", checkpoint.elapsed());
+
+    let checkpoint = Instant::now();
     let shares = run_aux_gen(incomplete_shares, &base_seeds, &mut rng);
+    println!("Auxiliary info generation completed in {:?}", checkpoint.elapsed());
+
+    let checkpoint = Instant::now();
     run_signing(&shares, hd_enabled, &base_seeds, &mut rng);
+    println!("Signing completed in {:?}", checkpoint.elapsed());
+
+    println!("Total test duration: {:?}", test_start.elapsed());
 }
 
 fn run_keygen<E>(t: u16, n: u16, hd_enabled: bool, base_seeds: &[[u8; 32]], rng: &mut DevRng) -> Vec<IncompleteKeyShare<E>>
@@ -136,7 +151,6 @@ where
     let mut participants = (0..n).collect::<Vec<_>>();
     participants.shuffle(rng);
     let participants = &participants[..usize::from(t)];
-    println!("Signers: {participants:?}");
     let participants_shares = participants.iter().map(|i| &shares[usize::from(*i)]);
 
     let sig = round_based::sim::run_with_setup(participants_shares, |i, party, share| {
