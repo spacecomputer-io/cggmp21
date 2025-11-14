@@ -27,24 +27,36 @@ where
     Point<E>: generic_ec::coords::HasAffineX<E>,
 {
     let mut rng = DevRng::new();
+    let test_start = Instant::now();
 
     // 1) Initialize your IPFS randomness source
     let gateway = "https://ipfs.io";
-    let beacon_key = "k2k4r8pigrw8i34z63om8f015tt5igdq0c46xupq8spp1bogt35k5vhe";
+    let beacon_key = "k2k4r8lvomw737sajfnpav0dpeernugnryng50uheyk1k39lursmn09f";
     let mut ctrng = crypto_ctrng::IpfsCtrngClient::new(gateway, beacon_key);
 
     // 2) Fetch one 32-byte block per simulated party
+    let checkpoint = Instant::now();
     let mut base_seeds: Vec<[u8; 32]> = Vec::new();
     for i in 0..n {
-        let ipfs_call_start = Instant::now();
         let seed = ctrng.next_block().expect("failed to fetch IPFS block");
-        let ipfs_duration = ipfs_call_start.elapsed();
-        println!("[IPFS call {}] Duration: {:?}, Seed (hex): {}", i, ipfs_duration, hex::encode(seed));
+        println!("Base seed {}: {}", i, hex::encode(seed));
         base_seeds.push(seed);
     }
+    println!("IPFS randomness fetch completed in {:?}", checkpoint.elapsed());
+
+    let checkpoint = Instant::now();
     let incomplete_shares = run_keygen(t, n, hd_enabled, &base_seeds, &mut rng);
+    println!("Key generation completed in {:?}", checkpoint.elapsed());
+
+    let checkpoint = Instant::now();
     let shares = run_aux_gen(incomplete_shares, &base_seeds, &mut rng);
+    println!("Auxiliary info generation completed in {:?}", checkpoint.elapsed());
+
+    let checkpoint = Instant::now();
     run_signing(&shares, hd_enabled, &base_seeds, &mut rng);
+    println!("Signing completed in {:?}", checkpoint.elapsed());
+
+    println!("Total test duration: {:?}", test_start.elapsed());
 }
 
 fn run_keygen<E>(t: u16, n: u16, hd_enabled: bool, base_seeds: &[[u8; 32]], rng: &mut DevRng) -> Vec<IncompleteKeyShare<E>>
@@ -57,8 +69,7 @@ where
     let eid: [u8; 32] = rng.gen();
     let eid = ExecutionId::new(&eid);
 
-    let protocol_start = Instant::now();
-    let result = round_based::sim::run(n, |i, party| {
+    round_based::sim::run(n, |i, party| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let stage_seed = crypto_ctrng::derive_seed(eid.as_bytes(), i, 1, &base_seeds[usize::from(i)]);
         let mut party_rng = crypto_ctrng::rng_from_seed_block(stage_seed);
@@ -74,10 +85,7 @@ where
     })
     .unwrap()
     .expect_ok()
-    .into_vec();
-    let protocol_duration = protocol_start.elapsed();
-    println!("[Keygen Protocol] Duration: {:?}", protocol_duration);
-    result
+    .into_vec()
 }
 
 fn run_aux_gen<E>(shares: Vec<IncompleteKeyShare<E>>, base_seeds: &[[u8; 32]], rng: &mut DevRng) -> Vec<KeyShare<E>>
@@ -90,7 +98,6 @@ where
     let eid: [u8; 32] = rng.gen();
     let eid = ExecutionId::new(&eid);
 
-    let protocol_start = Instant::now();
     let aux_infos = round_based::sim::run(n, |i, party| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let stage_seed = crypto_ctrng::derive_seed(eid.as_bytes(), i, 2, &base_seeds[usize::from(i)]);
@@ -105,8 +112,6 @@ where
     .unwrap()
     .expect_ok()
     .into_vec();
-    let protocol_duration = protocol_start.elapsed();
-    println!("[Aux Info Gen Protocol] Duration: {:?}", protocol_duration);
 
     shares
         .into_iter()
@@ -146,10 +151,8 @@ where
     let mut participants = (0..n).collect::<Vec<_>>();
     participants.shuffle(rng);
     let participants = &participants[..usize::from(t)];
-    println!("Signers: {participants:?}");
     let participants_shares = participants.iter().map(|i| &shares[usize::from(*i)]);
 
-    let protocol_start = Instant::now();
     let sig = round_based::sim::run_with_setup(participants_shares, |i, party, share| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let pid: u16 = participants[usize::from(i)];
@@ -177,8 +180,6 @@ where
     .unwrap()
     .expect_ok()
     .expect_eq();
-    let protocol_duration = protocol_start.elapsed();
-    println!("[Signing Protocol] Duration: {:?}", protocol_duration);
 
     #[cfg(feature = "hd-wallet")]
     let public_key = if let Some(path) = &derivation_path {
