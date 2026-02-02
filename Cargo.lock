@@ -370,6 +370,8 @@ dependencies = [
  "lazy_static",
  "pin-project",
  "rand",
+ "rand_chacha",
+ "rand_core",
  "rand_dev",
  "round-based",
  "secp256k1",
