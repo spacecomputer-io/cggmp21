@@ -32,8 +32,8 @@ where
     let test_start = Instant::now();
 
     // 1) Initialize your IPFS randomness source
-    let gateway = "https://ipfs.io";
-    let beacon_key = "k2k4r8pigrw8i34z63om8f015tt5igdq0c46xupq8spp1bogt35k5vhe";
+    let gateway = "https://ipfs.filebase.io/ipns/";
+    let beacon_key = "k2k4r8lvomw737sajfnpav0dpeernugnryng50uheyk1k39lursmn09f";
     let mut ctrng = crypto_ctrng::IpfsCtrng::new(gateway, beacon_key);
 
     // 2) Fetch one 32-byte block per simulated party
