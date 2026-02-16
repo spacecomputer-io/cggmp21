@@ -17,6 +17,8 @@ serde_json = { workspace = true }
 hex = { workspace = true }
 
 rand = { workspace = true }
+rand_chacha = "0.3"
+rand_core = { workspace = true }
 rand_dev = { workspace = true }
 
 sha2 = { workspace = true }

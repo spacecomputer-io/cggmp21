@@ -1,5 +1,7 @@
 use generic_ec::{Curve, Point};
 use rand::{seq::SliceRandom, Rng, RngCore};
+use rand_chacha::ChaCha20Rng;
+use rand_core::SeedableRng;
 use rand_dev::DevRng;
 use sha2::Sha256;
 use std::time::Instant;
@@ -31,8 +33,8 @@ where
 
     // 1) Initialize your IPFS randomness source
     let gateway = "https://ipfs.io";
-    let beacon_key = "k2k4r8lvomw737sajfnpav0dpeernugnryng50uheyk1k39lursmn09f";
-    let mut ctrng = crypto_ctrng::IpfsCtrngClient::new(gateway, beacon_key);
+    let beacon_key = "k2k4r8pigrw8i34z63om8f015tt5igdq0c46xupq8spp1bogt35k5vhe";
+    let mut ctrng = crypto_ctrng::IpfsCtrng::new(gateway, beacon_key);
 
     // 2) Fetch one 32-byte block per simulated party
     let checkpoint = Instant::now();
@@ -72,7 +74,7 @@ where
     round_based::sim::run(n, |i, party| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let stage_seed = crypto_ctrng::derive_seed(eid.as_bytes(), i, 1, &base_seeds[usize::from(i)]);
-        let mut party_rng = crypto_ctrng::rng_from_seed_block(stage_seed);
+        let mut party_rng = ChaCha20Rng::from_seed(stage_seed);
 
         async move {
             let keygen = cggmp24::keygen(eid, i, n).set_threshold(t);
@@ -101,7 +103,7 @@ where
     let aux_infos = round_based::sim::run(n, |i, party| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let stage_seed = crypto_ctrng::derive_seed(eid.as_bytes(), i, 2, &base_seeds[usize::from(i)]);
-        let mut party_rng = crypto_ctrng::rng_from_seed_block(stage_seed);
+        let mut party_rng = ChaCha20Rng::from_seed(stage_seed);
         let pregenerated_data = primes.next().expect("Can't fetch primes");
         async move {
             cggmp24::aux_info_gen(eid, i, n, pregenerated_data)
@@ -157,7 +159,7 @@ where
         let party = cggmp24_tests::buffer_outgoing(party);
         let pid: u16 = participants[usize::from(i)];
         let stage_seed = crypto_ctrng::derive_seed(eid.as_bytes(), pid, 3, &base_seeds[usize::from(pid)]);
-        let mut party_rng = crypto_ctrng::rng_from_seed_block(stage_seed);
+        let mut party_rng = ChaCha20Rng::from_seed(stage_seed);
 
         #[cfg(feature = "hd-wallet")]
         let derivation_path = derivation_path.clone();
