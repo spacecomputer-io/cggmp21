@@ -3,10 +3,25 @@ use rand::{seq::SliceRandom, Rng, RngCore};
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use rand_dev::DevRng;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::time::Instant;
 
 use crypto_ctrng::RandomBlockSource;
+
+/// Derives a personalized seed using SHA-256 domain separation (from crypto-ctrng).
+fn derive_seed(
+    execution_id: &[u8],
+    party_id: u16,
+    counter: u64,
+    ctrng_block: &[u8; 32],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(execution_id);
+    hasher.update(party_id.to_be_bytes());
+    hasher.update(counter.to_be_bytes());
+    hasher.update(ctrng_block);
+    hasher.finalize().into()
+}
 
 use cggmp24::{
     key_share::{AnyKeyShare, IncompleteKeyShare, KeyShare},
@@ -31,10 +46,9 @@ where
     let mut rng = DevRng::new();
     let test_start = Instant::now();
 
-    // 1) Initialize your IPFS randomness source
-    let gateway = "https://ipfs.filebase.io/ipns/";
+    // 1) Initialize your IPFS randomness source : 
     let beacon_key = "k2k4r8lvomw737sajfnpav0dpeernugnryng50uheyk1k39lursmn09f";
-    let mut ctrng = crypto_ctrng::IpfsCtrng::new(gateway, beacon_key);
+    let mut ctrng = crypto_ctrng::Ctrng::ipfs(beacon_key, None);
 
     // 2) Fetch one 32-byte block per simulated party
     let checkpoint = Instant::now();
@@ -86,7 +100,7 @@ where
     round_based::sim::run(n, |i, party| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let stage_seed =
-            crypto_ctrng::derive_seed(eid.as_bytes(), i, 1, &base_seeds[usize::from(i)]);
+            derive_seed(eid.as_bytes(), i, 1, &base_seeds[usize::from(i)]);
         let mut party_rng = ChaCha20Rng::from_seed(stage_seed);
 
         async move {
@@ -120,7 +134,7 @@ where
     let aux_infos = round_based::sim::run(n, |i, party| {
         let party = cggmp24_tests::buffer_outgoing(party);
         let stage_seed =
-            crypto_ctrng::derive_seed(eid.as_bytes(), i, 2, &base_seeds[usize::from(i)]);
+            derive_seed(eid.as_bytes(), i, 2, &base_seeds[usize::from(i)]);
         let mut party_rng = ChaCha20Rng::from_seed(stage_seed);
         let pregenerated_data = primes.next().expect("Can't fetch primes");
         async move {
@@ -181,7 +195,7 @@ fn run_signing<E>(
         let party = cggmp24_tests::buffer_outgoing(party);
         let pid: u16 = participants[usize::from(i)];
         let stage_seed =
-            crypto_ctrng::derive_seed(eid.as_bytes(), pid, 3, &base_seeds[usize::from(pid)]);
+            derive_seed(eid.as_bytes(), pid, 3, &base_seeds[usize::from(pid)]);
         let mut party_rng = ChaCha20Rng::from_seed(stage_seed);
 
         #[cfg(feature = "hd-wallet")]
